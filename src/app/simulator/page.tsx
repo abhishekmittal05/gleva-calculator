@@ -24,7 +24,7 @@ export default function SimulatorPage() {
   const [targetMargin, setTargetMargin] = useState("15");
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     const s = getSKUs();
     const p = getPlatforms();
     setSkus(s);
@@ -32,7 +32,14 @@ export default function SimulatorPage() {
     setGlobalAdsPercent(getGlobalAdsPercent());
     if (s.length > 0) setSelectedSkuId(s[0].id);
     if (p.length > 0) setSelectedPlatformId(p[0].id);
+  };
+
+  useEffect(() => {
+    loadData();
     setLoaded(true);
+    const handler = () => loadData();
+    window.addEventListener('sheets-synced', handler);
+    return () => window.removeEventListener('sheets-synced', handler);
   }, []);
 
   const selectedSku = useMemo(() => skus.find((s) => s.id === selectedSkuId), [skus, selectedSkuId]);

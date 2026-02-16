@@ -23,13 +23,20 @@ export default function MarketplacePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     setSkus(getSKUs());
     const p = getPlatforms();
     setPlatforms(p);
     setGlobalAdsPercent(getGlobalAdsPercent());
     if (p.length > 0) setSelectedPlatformId(p[0].id);
+  };
+
+  useEffect(() => {
+    loadData();
     setLoaded(true);
+    const handler = () => loadData();
+    window.addEventListener('sheets-synced', handler);
+    return () => window.removeEventListener('sheets-synced', handler);
   }, []);
 
   const selectedPlatform = useMemo(

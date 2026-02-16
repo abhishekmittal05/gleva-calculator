@@ -12,10 +12,17 @@ export default function ChangelogPage() {
   const [filterField, setFilterField] = useState("all");
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     setLogs(getFeeChangeLogs());
     setPlatforms(getPlatforms());
+  };
+
+  useEffect(() => {
+    loadData();
     setLoaded(true);
+    const handler = () => loadData();
+    window.addEventListener('sheets-synced', handler);
+    return () => window.removeEventListener('sheets-synced', handler);
   }, []);
 
   const filteredLogs = useMemo(() => {

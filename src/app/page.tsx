@@ -29,12 +29,19 @@ export default function Home() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     setSkus(getSKUs());
     setPlatforms(getPlatforms());
     setGlobalAdsPercent(getGlobalAdsPercent());
     setSettings(getSettings());
+  };
+
+  useEffect(() => {
+    loadData();
     setLoaded(true);
+    const handler = () => loadData();
+    window.addEventListener('sheets-synced', handler);
+    return () => window.removeEventListener('sheets-synced', handler);
   }, []);
 
   useEffect(() => { if (loaded) saveSKUs(skus); }, [skus, loaded]);

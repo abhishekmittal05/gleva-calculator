@@ -28,12 +28,19 @@ export default function AlertsPage() {
   const [filterSeverity, setFilterSeverity] = useState<"all" | "loss" | "low">("all");
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     setSkus(getSKUs());
     setPlatforms(getPlatforms());
     setGlobalAdsPercent(getGlobalAdsPercent());
     setSettings(getSettings());
+  };
+
+  useEffect(() => {
+    loadData();
     setLoaded(true);
+    const handler = () => loadData();
+    window.addEventListener('sheets-synced', handler);
+    return () => window.removeEventListener('sheets-synced', handler);
   }, []);
 
   const updateSettings = (newSettings: AppSettings) => {

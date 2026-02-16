@@ -37,11 +37,18 @@ export default function HeatmapPage() {
   const [metric, setMetric] = useState<MetricType>("profit");
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     setSkus(getSKUs());
     setPlatforms(getPlatforms());
     setGlobalAdsPercent(getGlobalAdsPercent());
+  };
+
+  useEffect(() => {
+    loadData();
     setLoaded(true);
+    const handler = () => loadData();
+    window.addEventListener('sheets-synced', handler);
+    return () => window.removeEventListener('sheets-synced', handler);
   }, []);
 
   const heatmapData = useMemo(() => {

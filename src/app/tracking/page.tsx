@@ -26,14 +26,21 @@ export default function TrackingPage() {
   const [selectedSnapshotId, setSelectedSnapshotId] = useState("");
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     setSkus(getSKUs());
     setPlatforms(getPlatforms());
     setGlobalAdsPercent(getGlobalAdsPercent());
     const snaps = getSnapshots();
     setSnapshots(snaps);
     if (snaps.length > 0) setSelectedSnapshotId(snaps[0].id);
+  };
+
+  useEffect(() => {
+    loadData();
     setLoaded(true);
+    const handler = () => loadData();
+    window.addEventListener('sheets-synced', handler);
+    return () => window.removeEventListener('sheets-synced', handler);
   }, []);
 
   const takeSnapshot = () => {
