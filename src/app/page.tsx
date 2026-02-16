@@ -342,7 +342,25 @@ function SKUManager({ skus, platforms, onUpdate }: { skus: SKU[]; platforms: Pla
   const [editing, setEditing] = useState<SKU | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [importMode, setImportMode] = useState<"add" | "overwrite">("add");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedIds(next);
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size === skus.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(skus.map(s => s.id)));
+  };
+  const deleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected SKU(s)?`)) return;
+    onUpdate(skus.filter(s => !selectedIds.has(s.id)));
+    setSelectedIds(new Set());
+  };
 
   const startNew = () => {
     const pp: SKU["platformPricing"] = {};
@@ -394,7 +412,30 @@ function SKUManager({ skus, platforms, onUpdate }: { skus: SKU[]; platforms: Pla
           platformPricing: pp,
         };
       }).filter(s => s.name || s.sku);
-      if (newSkus.length > 0) onUpdate([...skus, ...newSkus]);
+      if (newSkus.length > 0) {
+        if (importMode === "overwrite") {
+          // Match by SKU code — update existing, add new
+          const updated = [...skus];
+          let addedCount = 0;
+          let updatedCount = 0;
+          newSkus.forEach(ns => {
+            const existingIdx = updated.findIndex(s => s.sku.toLowerCase().trim() === ns.sku.toLowerCase().trim());
+            if (existingIdx >= 0) {
+              // Preserve the ID of existing SKU, overwrite everything else
+              updated[existingIdx] = { ...ns, id: updated[existingIdx].id };
+              updatedCount++;
+            } else {
+              updated.push(ns);
+              addedCount++;
+            }
+          });
+          onUpdate(updated);
+          alert(`Import done! ${updatedCount} SKU(s) updated, ${addedCount} new SKU(s) added.`);
+        } else {
+          onUpdate([...skus, ...newSkus]);
+          alert(`${newSkus.length} SKU(s) added.`);
+        }
+      }
       setShowImport(false);
     };
     reader.readAsText(file);
@@ -431,8 +472,11 @@ function SKUManager({ skus, platforms, onUpdate }: { skus: SKU[]; platforms: Pla
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
         <h2 className="text-lg font-semibold text-gray-900">SKUs ({skus.length})</h2>
-        <div className="flex gap-2">
-          <button onClick={handleExportTemplate} className="bg-gray-100 text-gray-700 px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-200">Export CSV Template</button>
+        <div className="flex gap-2 flex-wrap">
+          {selectedIds.size > 0 && (
+            <button onClick={deleteSelected} className="bg-red-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-red-700">Delete Selected ({selectedIds.size})</button>
+          )}
+          <button onClick={handleExportTemplate} className="bg-gray-100 text-gray-700 px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-200">Export CSV</button>
           <button onClick={() => setShowImport(true)} className="bg-green-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-green-700">Import CSV</button>
           <button onClick={startNew} className="bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700">+ Add SKU</button>
         </div>
@@ -445,6 +489,20 @@ function SKUManager({ skus, platforms, onUpdate }: { skus: SKU[]; platforms: Pla
             CSV must have headers: Name, SKU, Cost, GST, Weight, MRP, SP. Per-platform columns: [Platform]_SP, [Platform]_MRP, [Platform]_Settlement, [Platform]_Return%, [Platform]_Volume.
             Download the template first to see the exact format.
           </p>
+          <div className="flex gap-3 items-center mb-3">
+            <label className="text-sm font-medium text-blue-800">Import Mode:</label>
+            <label className="flex items-center gap-1 text-sm">
+              <input type="radio" name="importMode" checked={importMode === "add"} onChange={() => setImportMode("add")} /> Add as new SKUs
+            </label>
+            <label className="flex items-center gap-1 text-sm">
+              <input type="radio" name="importMode" checked={importMode === "overwrite"} onChange={() => setImportMode("overwrite")} /> Overwrite existing (match by SKU code)
+            </label>
+          </div>
+          {importMode === "overwrite" && (
+            <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded p-2 mb-3">
+              Overwrite mode: SKUs with matching SKU codes will be updated with new values. New SKU codes will be added. This is useful for bulk editing — export your data, edit in Excel/Google Sheets, and re-import.
+            </p>
+          )}
           <div className="flex gap-2">
             <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVImport} className="text-sm" />
             <button onClick={() => setShowImport(false)} className="text-sm text-gray-500 hover:text-gray-700">Cancel</button>
@@ -460,6 +518,7 @@ function SKUManager({ skus, platforms, onUpdate }: { skus: SKU[]; platforms: Pla
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="w-full text-sm">
             <thead><tr className="border-b bg-gray-50">
+              <th className="px-2 py-2 w-8"><input type="checkbox" checked={selectedIds.size === skus.length && skus.length > 0} onChange={toggleSelectAll} className="rounded" /></th>
               <th className="text-left px-4 py-2 font-medium text-gray-600">Name</th>
               <th className="text-left px-4 py-2 font-medium text-gray-600">SKU</th>
               <th className="text-right px-4 py-2 font-medium text-gray-600">Cost</th>
@@ -470,7 +529,8 @@ function SKUManager({ skus, platforms, onUpdate }: { skus: SKU[]; platforms: Pla
               <th className="text-right px-4 py-2 font-medium text-gray-600">Actions</th>
             </tr></thead>
             <tbody>{skus.map((sku) => (
-              <tr key={sku.id} className="border-b hover:bg-gray-50">
+              <tr key={sku.id} className={`border-b hover:bg-gray-50 ${selectedIds.has(sku.id) ? 'bg-blue-50' : ''}`}>
+                <td className="px-2 py-2"><input type="checkbox" checked={selectedIds.has(sku.id)} onChange={() => toggleSelect(sku.id)} className="rounded" /></td>
                 <td className="px-4 py-2 font-medium">{sku.name}</td>
                 <td className="px-4 py-2 text-gray-600">{sku.sku}</td>
                 <td className="px-4 py-2 text-right">{"\u20B9"}{sku.costPrice}</td>
