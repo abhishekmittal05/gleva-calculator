@@ -1,11 +1,23 @@
 // Gleva Profit Calculator - Core Calculation Engine
 //
-// GST LOGIC:
-// - All platform fees provided are INCLUSIVE of 18% GST
-// - GST Output: 18% on Selling Price (you pay to govt)
-// - GST Input Credit: GST on product cost + GST portion inside platform fees
-// - Net GST Payable = Output GST - Input GST
-// - For fixed settlement (Myntra/Flipkart): GST on settlement value
+// GST LOGIC (SP is always INCLUSIVE of GST):
+//
+// UNIFIED FORMULA for all non-settlement platforms:
+//   GST output = SP × gst/(100+gst)          (extract GST from inclusive SP)
+//   GST input on fees:
+//     - Fees EXCLUSIVE of tax (Amazon, Blinkit): fees × gst%  (you pay GST on fees, get input credit)
+//     - Fees INCLUSIVE of tax (all others):      fees × gst/(100+gst)  (extract GST inside fees)
+//   Net GST = GST output - GST input on fees
+//   Net received:
+//     - Fees EXCLUSIVE: SP - fees - tax on fees - discount  (we pay fees + GST on top)
+//     - Fees INCLUSIVE:  SP - fees - discount               (fees already include GST)
+//   Profit = Net received - cost - Net GST - ads - returns
+//
+// FIXED SETTLEMENT (Myntra, Flipkart):
+//   GST = settlement × gst/(100+gst)
+//   Profit = (settlement - GST) - cost
+//
+// Cost is always EXCLUSIVE of GST (raw product cost)
 
 export interface SKU {
   id: string;
@@ -184,17 +196,18 @@ export interface PlatformDefinition {
   type: 'amazon_fba' | 'blinkit' | 'sp_commission' | 'mrp_commission' | 'zero_commission' | 'fixed_settlement';
   commissionPercent?: number;
   adsPercent: number;
+  feesExclTax?: boolean; // true = fees are exclusive of tax (Amazon, Blinkit), false = inclusive
 }
 
 export const DEFAULT_PLATFORMS: PlatformDefinition[] = [
-  { id: 'amazon_fba', name: 'Amazon FBA', type: 'amazon_fba', adsPercent: 0 },
-  { id: 'rk_world', name: 'RK World', type: 'sp_commission', commissionPercent: 32, adsPercent: 0 },
-  { id: 'blinkit', name: 'Blinkit', type: 'blinkit', adsPercent: 0 },
-  { id: 'zepto', name: 'Zepto', type: 'mrp_commission', commissionPercent: 36, adsPercent: 0 },
-  { id: 'instamart', name: 'Instamart', type: 'sp_commission', commissionPercent: 35, adsPercent: 0 },
-  { id: 'firstcry', name: 'FirstCry', type: 'sp_commission', commissionPercent: 35, adsPercent: 0 },
-  { id: 'nykaa', name: 'Nykaa', type: 'mrp_commission', commissionPercent: 38, adsPercent: 0 },
-  { id: 'meesho', name: 'Meesho', type: 'zero_commission', commissionPercent: 0, adsPercent: 0 },
+  { id: 'amazon_fba', name: 'Amazon FBA', type: 'amazon_fba', adsPercent: 0, feesExclTax: true },
+  { id: 'rk_world', name: 'RK World', type: 'sp_commission', commissionPercent: 32, adsPercent: 0, feesExclTax: false },
+  { id: 'blinkit', name: 'Blinkit', type: 'blinkit', adsPercent: 0, feesExclTax: true },
+  { id: 'zepto', name: 'Zepto', type: 'mrp_commission', commissionPercent: 36, adsPercent: 0, feesExclTax: false },
+  { id: 'instamart', name: 'Instamart', type: 'sp_commission', commissionPercent: 35, adsPercent: 0, feesExclTax: false },
+  { id: 'firstcry', name: 'FirstCry', type: 'sp_commission', commissionPercent: 35, adsPercent: 0, feesExclTax: false },
+  { id: 'nykaa', name: 'Nykaa', type: 'mrp_commission', commissionPercent: 38, adsPercent: 0, feesExclTax: false },
+  { id: 'meesho', name: 'Meesho', type: 'zero_commission', commissionPercent: 0, adsPercent: 0, feesExclTax: false },
   { id: 'myntra', name: 'Myntra', type: 'fixed_settlement', adsPercent: 0 },
   { id: 'flipkart', name: 'Flipkart', type: 'fixed_settlement', adsPercent: 0 },
 ];
@@ -215,19 +228,23 @@ export function calculateProfit(
   const settlement = platformPricing?.settlement;
   const returnPercent = platformPricing?.returnPercent || 0;
   const adsPercent = platform.adsPercent || globalAdsPercent || 0;
-  const gstRate = sku.gstPercent / 100;
+  const gstRate = sku.gstPercent / 100; // e.g. 0.18
   const monthlyVolume = platformPricing?.monthlyVolume || 0;
+  const productCost = sku.costPrice; // exclusive of GST
 
-  const productCost = sku.costPrice;
-  const gstInputOnCost = productCost * gstRate;
-
+  // ============================================
+  // FIXED SETTLEMENT (Myntra, Flipkart)
+  // GST = settlement × gst/(100+gst)
+  // Profit = (settlement - GST) - cost
+  // ============================================
   if (platform.type === 'fixed_settlement' && settlement !== undefined) {
-    const gstOutput = settlement * gstRate;
+    const gstOutput = settlement * gstRate / (1 + gstRate);
+    const gstInputOnCost = 0;
     const gstInputOnFees = 0;
-    const netGST = gstOutput - gstInputOnCost - gstInputOnFees;
+    const netGST = gstOutput;
     const adsCost = settlement * (adsPercent / 100);
     const returnCost = settlement * (returnPercent / 100);
-    const profit = settlement - productCost - netGST - adsCost - returnCost;
+    const profit = settlement - gstOutput - productCost - adsCost - returnCost;
     const profitMargin = settlement > 0 ? (profit / settlement) * 100 : 0;
 
     return {
@@ -241,6 +258,15 @@ export function calculateProfit(
     };
   }
 
+  // ============================================
+  // ALL OTHER PLATFORMS — Unified formula
+  // GST output = SP × gst/(100+gst)
+  // GST input on fees:
+  //   Exclusive (Amazon/Blinkit): fees × gst%
+  //   Inclusive (all others):     fees × gst/(100+gst)
+  // Net GST = output - input on fees
+  // Profit = netReceived - cost - netGST - ads - returns
+  // ============================================
   let fees: FeeBreakdown;
   switch (platform.type) {
     case 'amazon_fba': fees = calculateAmazonFBA(sp, mrp); break;
@@ -251,10 +277,30 @@ export function calculateProfit(
   }
 
   const totalPlatformFees = fees.commission + fees.closingFee + fees.shippingFee + fees.pickAndPackFee + fees.storageFee;
-  const netReceived = sp - totalPlatformFees - fees.discount;
-  const gstOutput = sp * gstRate;
-  const gstInputOnFees = totalPlatformFees * (gstRate / (1 + gstRate));
-  const netGST = gstOutput - gstInputOnCost - gstInputOnFees;
+
+  // GST output: always on SP (inclusive)
+  const gstOutput = sp * gstRate / (1 + gstRate);
+
+  // GST input on fees & net received
+  let gstInputOnFees: number;
+  let netReceived: number;
+  if (platform.feesExclTax) {
+    // Fees are EXCLUSIVE of tax — we pay fees + GST on fees
+    // Input credit = fees × gst%
+    // Net received = SP - (fees + tax on fees) - discount
+    gstInputOnFees = totalPlatformFees * gstRate;
+    netReceived = sp - totalPlatformFees - (totalPlatformFees * gstRate) - fees.discount;
+  } else {
+    // Fees are INCLUSIVE of tax — fees already contain GST
+    // Extract GST from inside fees for input credit
+    // Net received = SP - fees - discount (fees already include tax)
+    gstInputOnFees = (totalPlatformFees + fees.discount) * gstRate / (1 + gstRate);
+    netReceived = sp - totalPlatformFees - fees.discount;
+  }
+
+  const gstInputOnCost = 0;
+  const netGST = gstOutput - gstInputOnFees;
+
   const adsCost = sp * (adsPercent / 100);
   const returnCost = netReceived * (returnPercent / 100);
   const profit = netReceived - productCost - netGST - adsCost - returnCost;
