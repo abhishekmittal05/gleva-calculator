@@ -8,13 +8,29 @@ let sheetsClient: ReturnType<typeof google.sheets> | null = null;
 function getSheets() {
   if (sheetsClient) return sheetsClient;
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    },
-    scopes: SCOPES,
-  });
+  let auth;
+
+  if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    // Full JSON credentials (preferred for Vercel)
+    const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+    auth = new google.auth.GoogleAuth({
+      credentials: creds,
+      scopes: SCOPES,
+    });
+  } else {
+    // Individual env vars (for local dev with .env.local)
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+    if (!privateKey.includes('\n')) {
+      privateKey = privateKey.replace(/\\n/g, '\n');
+    }
+    auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        private_key: privateKey,
+      },
+      scopes: SCOPES,
+    });
+  }
 
   sheetsClient = google.sheets({ version: 'v4', auth });
   return sheetsClient;

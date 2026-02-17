@@ -7,21 +7,36 @@ import {
 import { DEFAULT_PLATFORMS, DEFAULT_SETTINGS } from '@/lib/calculations';
 import type { SyncData } from '@/lib/sync';
 
+const SHEET_NAMES = ['SKUs', 'Platforms', 'FeeChangeLogs', 'Snapshots', 'SnapshotDetails', 'Settings', 'GlobalAdsPercent'];
+
 // GET: Read ALL data from Google Sheets in a single API call
-// This reduces client-side round trips — one fetch gets everything
 export async function GET() {
   try {
-    // Read all 7 sheets in parallel
-    const [skuRows, platformRows, feeLogRows, snapshotMetaRows, snapshotDetailRows, settingsRows, adsRows] =
-      await Promise.all([
-        readSheet('SKUs'),
-        readSheet('Platforms'),
-        readSheet('FeeChangeLogs'),
-        readSheet('Snapshots'),
-        readSheet('SnapshotDetails'),
-        readSheet('Settings'),
-        readSheet('GlobalAdsPercent'),
-      ]);
+    // Read sheets one by one to identify which fails
+    const results: Record<string, string[][]> = {};
+    const errors: string[] = [];
+
+    for (const name of SHEET_NAMES) {
+      try {
+        results[name] = await readSheet(name);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(`${name}: ${msg}`);
+        results[name] = [];
+      }
+    }
+
+    if (errors.length > 0) {
+      return NextResponse.json({ error: 'Some sheets failed', sheetErrors: errors }, { status: 500 });
+    }
+
+    const skuRows = results['SKUs'];
+    const platformRows = results['Platforms'];
+    const feeLogRows = results['FeeChangeLogs'];
+    const snapshotMetaRows = results['Snapshots'];
+    const snapshotDetailRows = results['SnapshotDetails'];
+    const settingsRows = results['Settings'];
+    const adsRows = results['GlobalAdsPercent'];
 
     // Parse each dataset
     const skus = skuRows.length > 1 ? skuRows.slice(1).map(row => rowToSku(row)) : [];
@@ -38,6 +53,7 @@ export async function GET() {
     return NextResponse.json(data);
   } catch (error) {
     console.error('Failed to sync from Sheets:', error);
-    return NextResponse.json({ error: 'Failed to sync from Sheets' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: 'Failed to sync from Sheets', details: message }, { status: 500 });
   }
 }
